@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>实时日志查看器</title>
+    <style>
+        * { 
+            margin: 0; 
+            padding: 0; 
+            box-sizing: border-box; 
+        }
+        
+        body {
+            font-family: "SF Mono", "Menlo", "Monaco", "Courier New", monospace;
+            background: #1e1e1e;
+            color: #e0e0e0;
+            padding: 20px;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        h1 { 
+            color: #4d9fff; 
+            margin-bottom: 20px; 
+            font-size: 24px;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .control-group label {
+            font-size: 14px;
+            color: #999;
+        }
+        
+        input[type="text"], 
+        select {
+            padding: 8px 12px;
+            background: #2d2d2d;
+            border: 1px solid #3d3d3d;
+            border-radius: 4px;
+            color: #e0e0e0;
+            font-size: 14px;
+            font-family: inherit;
+        }
+        
+        input[type="text"] {
+            min-width: 200px;
+            flex: 1;
+        }
+        
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #4d9fff;
+        }
+        
+        select {
+            min-width: 120px;
+        }
+        
+        button {
+            padding: 8px 16px;
+            background: #4d9fff;
+            border: none;
+            border-radius: 4px;
+            color: white;
+            font-size: 14px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        
+        button:hover {
+            background: #3a8eef;
+        }
+        
+        button:active {
+            background: #2a7edf;
+        }
+        
+        .status-bar {
+            color: #ff6347;
+            margin-bottom: 16px;
+            font-size: 12px;
+            padding: 8px;
+            background: #2d2d2d;
+            border-radius: 4px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .status-bar.connected {
+            color: #32cd32;
+        }
+        
+        .log-stats {
+            font-size: 12px;
+            color: #999;
+        }
+        
+        .log-container {
+            flex: 1;
+            overflow-y: auto;
+            background: #252526;
+            border-radius: 8px;
+            padding: 16px;
+            border: 1px solid #3d3d3d;
+        }
+        
+        .log-item { 
+            margin: 4px 0; 
+            font-size: 13px; 
+            line-height: 1.5;
+            padding: 4px 8px;
+            border-radius: 3px;
+            word-wrap: break-word;
+            transition: background 0.1s;
+        }
+        
+        .log-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        
+        .log-item.hidden {
+            display: none;
+        }
+        
+        .log-verbose { color: #cccccc; }
+        .log-debug { color: #6495ed; }
+        .log-info { color: #32cd32; }
+        .log-warn { color: #ffd700; }
+        .log-error { color: #ff6347; font-weight: 500; }
+        
+        .log-time { 
+            color: #858585; 
+            margin-right: 12px; 
+            font-size: 12px;
+        }
+        
+        .log-level {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: 500;
+            margin-right: 8px;
+            min-width: 60px;
+            text-align: center;
+        }
+        
+        .log-level.verbose { background: #666; color: #fff; }
+        .log-level.debug { background: #4169e1; color: #fff; }
+        .log-level.info { background: #228b22; color: #fff; }
+        .log-level.warn { background: #daa520; color: #000; }
+        .log-level.error { background: #dc143c; color: #fff; }
+        
+        .log-message {
+            flex: 1;
+        }
+        
+        .log-details {
+            font-size: 11px;
+            color: #666;
+            margin-left: 80px;
+            margin-top: 2px;
+        }
+        
+        ::-webkit-scrollbar {
+            width: 12px;
+            height: 12px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: #1e1e1e;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: #424242;
+            border-radius: 6px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: #4e4e4e;
+        }
+    </style>
+</head>
+<body>
+    <h1>📱 实时日志查看器</h1>
+    
+    <div class="controls">
+        <div class="control-group">
+            <label>搜索:</label>
+            <input type="text" id="searchInput" placeholder="输入关键字搜索日志内容...">
+        </div>
+        
+        <div class="control-group">
+            <label>级别:</label>
+            <select id="levelFilter">
+                <option value="all">全部级别</option>
+                <option value="verbose">Verbose</option>
+                <option value="debug">Debug</option>
+                <option value="info">Info</option>
+                <option value="warn">Warning</option>
+                <option value="error">Error</option>
+            </select>
+        </div>
+        
+        <button id="clearButton">清空日志</button>
+        <button id="autoScrollButton">自动滚动: 开</button>
+    </div>
+    
+    <div class="status-bar" id="status">
+        <span>正在连接设备...</span>
+        <span class="log-stats" id="logStats">0 条日志</span>
+    </div>
+    
+    <div class="log-container" id="logContainer"></div>
+
+    <script>
+        const statusEl = document.getElementById('status');
+        const logContainer = document.getElementById('logContainer');
+        const searchInput = document.getElementById('searchInput');
+        const levelFilter = document.getElementById('levelFilter');
+        const clearButton = document.getElementById('clearButton');
+        const autoScrollButton = document.getElementById('autoScrollButton');
+        const logStats = document.getElementById('logStats');
+        
+        let webSocket = null;
+        let logs = [];
+        let autoScroll = true;
+        let searchText = '';
+        let filterLevel = 'all';
+        
+        // 初始化 WebSocket 连接
+        function initWebSocket() {
+            // 使用占位符，将在服务器端替换为实际 IP 和端口
+            const wsUrl = '{{WS_URL}}/ws';
+            webSocket = new WebSocket(wsUrl, 'default');
+
+            webSocket.onopen = () => {
+                statusEl.textContent = "✅ 已连接到设备，正在接收日志...";
+                statusEl.className = "status-bar connected";
+            };
+
+            webSocket.onmessage = (event) => {
+                try {
+                    const logData = JSON.parse(event.data);
+                    addLog(logData);
+                } catch (e) {
+                    // 如果不是 JSON，作为纯文本处理
+                    addLog({
+                        level: 'info',
+                        levelName: 'info',
+                        message: event.data,
+                        timestamp: Date.now() / 1000,
+                        timeString: new Date().toLocaleTimeString(),
+                        file: '',
+                        function: '',
+                        line: 0
+                    });
+                }
+            };
+
+            webSocket.onclose = () => {
+                statusEl.textContent = "❌ 连接断开";
+                statusEl.className = "status-bar";
+            };
+
+            webSocket.onerror = (error) => {
+                statusEl.textContent = `❌ 连接错误：${error.message || '未知错误'}`;
+                statusEl.className = "status-bar";
+            };
+        }
+
+        // 添加日志
+        function addLog(logData) {
+            logs.push(logData);
+            const logItem = createLogElement(logData);
+            
+            // 应用当前过滤条件
+            if (shouldShowLog(logData)) {
+                logContainer.appendChild(logItem);
+                if (autoScroll) {
+                    logContainer.scrollTop = logContainer.scrollHeight;
+                }
+            } else {
+                logItem.classList.add('hidden');
+                logContainer.appendChild(logItem);
+            }
+            
+            updateLogStats();
+        }
+
+        // 创建日志元素
+        function createLogElement(logData) {
+            const logItem = document.createElement('div');
+            logItem.className = `log-item log-${logData.levelName.toLowerCase()}`;
+            logItem.setAttribute('data-level', logData.levelName.toLowerCase());
+            logItem.setAttribute('data-message', logData.message.toLowerCase());
+            
+            const timeSpan = document.createElement('span');
+            timeSpan.className = 'log-time';
+            timeSpan.textContent = `[${logData.timeString || formatTime(logData.timestamp)}]`;
+            
+            const levelSpan = document.createElement('span');
+            levelSpan.className = `log-level ${logData.levelName.toLowerCase()}`;
+            levelSpan.textContent = logData.levelName.toUpperCase();
+            
+            const messageSpan = document.createElement('span');
+            messageSpan.className = 'log-message';
+            messageSpan.textContent = logData.message;
+            
+            logItem.appendChild(timeSpan);
+            logItem.appendChild(levelSpan);
+            logItem.appendChild(messageSpan);
+            
+            if (logData.file || logData.function) {
+                const detailsDiv = document.createElement('div');
+                detailsDiv.className = 'log-details';
+                let details = [];
+                if (logData.file) details.push(`文件: ${logData.file}`);
+                if (logData.line > 0) details.push(`行: ${logData.line}`);
+                if (logData.function) details.push(`函数: ${logData.function}`);
+                detailsDiv.textContent = details.join(' | ');
+                logItem.appendChild(detailsDiv);
+            }
+            
+            return logItem;
+        }
+
+        // 格式化时间
+        function formatTime(timestamp) {
+            const date = new Date(timestamp * 1000);
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            const seconds = String(date.getSeconds()).padStart(2, '0');
+            const ms = String(date.getMilliseconds()).padStart(3, '0');
+            return `${hours}:${minutes}:${seconds}.${ms}`;
+        }
+
+        // 判断是否应该显示日志
+        function shouldShowLog(logData) {
+            // 级别过滤
+            if (filterLevel !== 'all' && logData.levelName.toLowerCase() !== filterLevel) {
+                return false;
+            }
+            
+            // 搜索过滤
+            if (searchText) {
+                const searchLower = searchText.toLowerCase();
+                const messageLower = logData.message.toLowerCase();
+                const fileLower = (logData.file || '').toLowerCase();
+                const functionLower = (logData.function || '').toLowerCase();
+                
+                if (!messageLower.includes(searchLower) && 
+                    !fileLower.includes(searchLower) && 
+                    !functionLower.includes(searchLower)) {
+                    return false;
+                }
+            }
+            
+            return true;
+        }
+
+        // 重新过滤所有日志
+        function refilterLogs() {
+            const items = logContainer.querySelectorAll('.log-item');
+            items.forEach(item => {
+                const level = item.getAttribute('data-level');
+                const message = item.getAttribute('data-message');
+                
+                let shouldShow = true;
+                
+                // 级别过滤
+                if (filterLevel !== 'all' && level !== filterLevel) {
+                    shouldShow = false;
+                }
+                
+                // 搜索过滤
+                if (searchText && !message.includes(searchText.toLowerCase())) {
+                    shouldShow = false;
+                }
+                
+                if (shouldShow) {
+                    item.classList.remove('hidden');
+                } else {
+                    item.classList.add('hidden');
+                }
+            });
+            
+            updateLogStats();
+        }
+
+        // 更新日志统计
+        function updateLogStats() {
+            const visibleCount = logContainer.querySelectorAll('.log-item:not(.hidden)').length;
+            logStats.textContent = `${visibleCount} / ${logs.length} 条日志`;
+        }
+
+        // 事件监听
+        searchInput.addEventListener('input', (e) => {
+            searchText = e.target.value;
+            refilterLogs();
+        });
+
+        levelFilter.addEventListener('change', (e) => {
+            filterLevel = e.target.value;
+            refilterLogs();
+        });
+
+        clearButton.addEventListener('click', () => {
+            if (confirm('确定要清空所有日志吗？')) {
+                logs = [];
+                logContainer.innerHTML = '';
+                updateLogStats();
+            }
+        });
+
+        autoScrollButton.addEventListener('click', () => {
+            autoScroll = !autoScroll;
+            autoScrollButton.textContent = `自动滚动: ${autoScroll ? '开' : '关'}`;
+            if (autoScroll) {
+                logContainer.scrollTop = logContainer.scrollHeight;
+            }
+        });
+
+        // 页面加载完成初始化
+        window.onload = () => {
+            initWebSocket();
+        };
+    </script>
+</body>
+</html>
