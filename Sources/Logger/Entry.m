@@ -7,8 +7,15 @@
 
 static id kLogServer;
 
-__attribute__((constructor(100)))
-static void entry(void) {
+@interface StarscreamLoggerEntry : NSObject
+
+@end
+
+@implementation StarscreamLoggerEntry
+
++ (void)load {
     Class cls = NSClassFromString(@"StarscreamLogger.LogServer");
     kLogServer = [[cls alloc] init];
 }
+
+@end

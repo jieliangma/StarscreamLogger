@@ -171,13 +171,6 @@
             flex: 1;
         }
         
-        .log-details {
-            font-size: 11px;
-            color: #666;
-            margin-left: 80px;
-            margin-top: 2px;
-        }
-        
         ::-webkit-scrollbar {
             width: 12px;
             height: 12px;
@@ -327,15 +320,8 @@
             logItem.appendChild(levelSpan);
             logItem.appendChild(messageSpan);
             
-            if (logData.file || logData.function) {
-                const detailsDiv = document.createElement('div');
-                detailsDiv.className = 'log-details';
-                let details = [];
-                if (logData.file) details.push(`文件: ${logData.file}`);
-                if (logData.line > 0) details.push(`行: ${logData.line}`);
-                if (logData.function) details.push(`函数: ${logData.function}`);
-                detailsDiv.textContent = details.join(' | ');
-                logItem.appendChild(detailsDiv);
+            if (logData.file && logData.line > 0) {
+                logItem.title = `${logData.file}:${logData.line}`
             }
             
             return logItem;

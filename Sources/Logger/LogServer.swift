@@ -133,7 +133,7 @@ class LogServer: NSObject {
     private func currentBundle() -> Bundle {
         let bundle = Bundle(for: self.classForCoder)
         
-        guard let path = bundle.path(forResource: "Starscream_Privacy", ofType: "bundle"), let bundle = Bundle(path: path) else {
+        guard let path = bundle.path(forResource: "StarscreamLogger_Privacy", ofType: "bundle"), let bundle = Bundle(path: path) else {
             return Bundle.main
         }
         

@@ -27,11 +27,17 @@ class WebSocketLogger: DDAbstractLogger {
     }
     
     private func processLogMessage(_ logMessage: DDLogMessage) {
+        var tag = logMessage.tag as? String ?? ""
+        let tagHasWraped = tag.hasPrefix("[") && tag.hasSuffix("]") || tag.hasPrefix("【") && tag.hasSuffix("】")
+        if !tag.isEmpty && !tagHasWraped {
+            tag = "[" + tag + "]"
+        }
+        
         // 格式化日志消息
         let logDict: [String: Any] = [
             "level": logMessage.flag.rawValue,
             "levelName": levelName(for: logMessage.flag),
-            "message": logMessage.message,
+            "message": tag + " " + logMessage.message,
             "timestamp": logMessage.timestamp.timeIntervalSince1970,
             "timeString": formatTimestamp(logMessage.timestamp),
             "file": (logMessage.file as NSString).lastPathComponent,
