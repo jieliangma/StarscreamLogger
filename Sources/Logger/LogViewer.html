@@ -5,10 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>实时日志查看器</title>
     <style>
-        * { 
-            margin: 0; 
-            padding: 0; 
-            box-sizing: border-box; 
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
         }
         
         body {
@@ -21,9 +21,9 @@
             flex-direction: column;
         }
         
-        h1 { 
-            color: #4d9fff; 
-            margin-bottom: 20px; 
+        h1 {
+            color: #4d9fff;
+            margin-bottom: 20px;
             font-size: 24px;
         }
         
@@ -39,14 +39,19 @@
             display: flex;
             align-items: center;
             gap: 8px;
+            flex: 1 1 auto;
         }
         
         .control-group label {
             font-size: 14px;
             color: #999;
         }
+
+        .control-group:first-child {
+            flex: 2 1 auto; /* 搜索框组占用更多空间 */
+        }
         
-        input[type="text"], 
+        input[type="text"],
         select {
             padding: 8px 12px;
             background: #2d2d2d;
@@ -60,6 +65,7 @@
         input[type="text"] {
             min-width: 200px;
             flex: 1;
+            width: 100%;
         }
         
         input[type="text"]:focus {
@@ -90,6 +96,22 @@
             background: #2a7edf;
         }
         
+        /* 新增：正则开关样式 */
+        .regex-toggle {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: #999;
+        }
+        
+        .regex-toggle input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            accent-color: #4d9fff;
+            cursor: pointer;
+        }
+        
         .status-bar {
             color: #ff6347;
             margin-bottom: 16px;
@@ -106,6 +128,13 @@
             color: #32cd32;
         }
         
+        /* 新增：正则错误提示样式 */
+        .regex-error {
+            color: #ff6347;
+            font-size: 12px;
+            margin-left: 8px;
+        }
+        
         .log-stats {
             font-size: 12px;
             color: #999;
@@ -120,9 +149,9 @@
             border: 1px solid #3d3d3d;
         }
         
-        .log-item { 
-            margin: 4px 0; 
-            font-size: 13px; 
+        .log-item {
+            margin: 4px 0;
+            font-size: 13px;
             line-height: 1.5;
             padding: 4px 8px;
             border-radius: 3px;
@@ -144,9 +173,9 @@
         .log-warn { color: #ffd700; }
         .log-error { color: #ff6347; font-weight: 500; }
         
-        .log-time { 
-            color: #858585; 
-            margin-right: 12px; 
+        .log-time {
+            color: #858585;
+            margin-right: 12px;
             font-size: 12px;
         }
         
@@ -191,15 +220,19 @@
     </style>
 </head>
 <body>
-    <h1>📱 实时日志查看器</h1>
-    
     <div class="controls">
         <div class="control-group">
             <label>搜索:</label>
-            <input type="text" id="searchInput" placeholder="输入关键字搜索日志内容...">
+            <input type="text" id="searchInput" placeholder="输入关键字/正则表达式搜索...">
+            <!-- 新增：正则开关复选框 -->
+            <div class="regex-toggle">
+                <input type="checkbox" id="regexToggle">
+                <label for="regexToggle">正则表达式</label>
+            </div>
+            <span id="regexError" class="regex-error"></span>
         </div>
         
-        <div class="control-group">
+        <div>
             <label>级别:</label>
             <select id="levelFilter">
                 <option value="all">全部级别</option>
@@ -230,12 +263,21 @@
         const clearButton = document.getElementById('clearButton');
         const autoScrollButton = document.getElementById('autoScrollButton');
         const logStats = document.getElementById('logStats');
+        // 新增：正则相关元素
+        const regexToggle = document.getElementById('regexToggle');
+        const regexError = document.getElementById('regexError');
         
         let webSocket = null;
         let logs = [];
         let autoScroll = true;
         let searchText = '';
         let filterLevel = 'all';
+        // 新增：正则开关状态、正则对象缓存
+        let isRegexSearch = false;
+        let regexPattern = null; // 缓存编译后的正则对象，避免重复编译
+        // 新增：重连相关变量
+        let reconnectTimer = null; // 重连定时器
+        const reconnectInterval = 5000; // 重连间隔（5秒）
         
         // 初始化 WebSocket 连接
         function initWebSocket() {
@@ -244,6 +286,11 @@
             webSocket = new WebSocket(wsUrl, 'default');
 
             webSocket.onopen = () => {
+                // 新增：连接成功后清除重连定时器
+                if (reconnectTimer) {
+                    clearTimeout(reconnectTimer);
+                    reconnectTimer = null;
+                }
                 statusEl.textContent = "✅ 已连接到设备，正在接收日志...";
                 statusEl.className = "status-bar connected";
             };
@@ -270,12 +317,47 @@
             webSocket.onclose = () => {
                 statusEl.textContent = "❌ 连接断开";
                 statusEl.className = "status-bar";
+                // 新增：触发重连逻辑
+                reconnectWebSocket();
             };
 
             webSocket.onerror = (error) => {
                 statusEl.textContent = `❌ 连接错误：${error.message || '未知错误'}`;
                 statusEl.className = "status-bar";
+                // 新增：错误后也触发重连（可选，增强鲁棒性）
+                reconnectWebSocket();
             };
+        }
+
+        // 新增：编译正则表达式（带错误处理）
+        function compileRegex(patternStr) {
+            regexError.textContent = '';
+            if (!patternStr) return null;
+            
+            try {
+                // 忽略大小写，全局匹配
+                return new RegExp(patternStr, 'i');
+            } catch (e) {
+                regexError.textContent = `正则错误: ${e.message}`;
+                return null;
+            }
+        }
+
+        // 新增：WebSocket重连函数
+        function reconnectWebSocket() {
+            // 避免重复创建定时器
+            if (reconnectTimer) {
+                clearTimeout(reconnectTimer);
+            }
+            
+            // 显示重连提示
+            statusEl.textContent = `❌ 连接断开，${reconnectInterval/1000}秒后尝试重连...`;
+            
+            // 设置5秒后重新初始化连接
+            reconnectTimer = setTimeout(() => {
+                statusEl.textContent = "🔄 正在尝试重新连接...";
+                initWebSocket();
+            }, reconnectInterval);
         }
 
         // 添加日志
@@ -303,6 +385,8 @@
             logItem.className = `log-item log-${logData.levelName.toLowerCase()}`;
             logItem.setAttribute('data-level', logData.levelName.toLowerCase());
             logItem.setAttribute('data-message', logData.message.toLowerCase());
+            // 新增：存储原始消息（用于正则匹配）
+            logItem.setAttribute('data-message-raw', logData.message);
             
             const timeSpan = document.createElement('span');
             timeSpan.className = 'log-time';
@@ -337,7 +421,7 @@
             return `${hours}:${minutes}:${seconds}.${ms}`;
         }
 
-        // 判断是否应该显示日志
+        // 修改：更新日志过滤逻辑，支持正则
         function shouldShowLog(logData) {
             // 级别过滤
             if (filterLevel !== 'all' && logData.levelName.toLowerCase() !== filterLevel) {
@@ -346,27 +430,46 @@
             
             // 搜索过滤
             if (searchText) {
-                const searchLower = searchText.toLowerCase();
-                const messageLower = logData.message.toLowerCase();
-                const fileLower = (logData.file || '').toLowerCase();
-                const functionLower = (logData.function || '').toLowerCase();
+                const message = logData.message;
+                const file = logData.file || '';
+                const func = logData.function || '';
                 
-                if (!messageLower.includes(searchLower) && 
-                    !fileLower.includes(searchLower) && 
-                    !functionLower.includes(searchLower)) {
-                    return false;
+                if (isRegexSearch) {
+                    // 正则模式：使用编译好的正则对象匹配
+                    if (!regexPattern) return false;
+                    return regexPattern.test(message) || regexPattern.test(file) || regexPattern.test(func);
+                } else {
+                    // 普通模式：包含匹配（兼容原有逻辑）
+                    const searchLower = searchText.toLowerCase();
+                    const messageLower = message.toLowerCase();
+                    const fileLower = file.toLowerCase();
+                    const funcLower = func.toLowerCase();
+                    
+                    return messageLower.includes(searchLower) ||
+                           fileLower.includes(searchLower) ||
+                           funcLower.includes(searchLower);
                 }
             }
             
             return true;
         }
 
-        // 重新过滤所有日志
+        // 修改：重新过滤所有日志（适配正则）
         function refilterLogs() {
+            // 先编译正则（如果开启）
+            if (isRegexSearch) {
+                regexPattern = compileRegex(searchText);
+            } else {
+                regexPattern = null;
+                regexError.textContent = '';
+            }
+            
             const items = logContainer.querySelectorAll('.log-item');
             items.forEach(item => {
                 const level = item.getAttribute('data-level');
-                const message = item.getAttribute('data-message');
+                const messageRaw = item.getAttribute('data-message-raw');
+                const file = item.title.split(':')[0] || '';
+                const func = ''; // 原有逻辑未存储func，这里保持一致
                 
                 let shouldShow = true;
                 
@@ -376,8 +479,23 @@
                 }
                 
                 // 搜索过滤
-                if (searchText && !message.includes(searchText.toLowerCase())) {
-                    shouldShow = false;
+                if (searchText && shouldShow) {
+                    if (isRegexSearch) {
+                        // 正则匹配
+                        if (!regexPattern) {
+                            shouldShow = false;
+                        } else {
+                            shouldShow = regexPattern.test(messageRaw) ||
+                                       regexPattern.test(file) ||
+                                       regexPattern.test(func);
+                        }
+                    } else {
+                        // 普通包含匹配
+                        const messageLower = item.getAttribute('data-message');
+                        const searchLower = searchText.toLowerCase();
+                        shouldShow = messageLower.includes(searchLower) ||
+                                   file.toLowerCase().includes(searchLower);
+                    }
                 }
                 
                 if (shouldShow) {
@@ -398,7 +516,14 @@
 
         // 事件监听
         searchInput.addEventListener('input', (e) => {
-            searchText = e.target.value;
+            searchText = e.target.value.trim();
+            refilterLogs();
+        });
+
+        // 新增：正则开关切换事件
+        regexToggle.addEventListener('change', (e) => {
+            isRegexSearch = e.target.checked;
+            // 切换后重新过滤
             refilterLogs();
         });
 
@@ -408,11 +533,9 @@
         });
 
         clearButton.addEventListener('click', () => {
-            if (confirm('确定要清空所有日志吗？')) {
-                logs = [];
-                logContainer.innerHTML = '';
-                updateLogStats();
-            }
+            logs = [];
+            logContainer.innerHTML = '';
+            updateLogStats();
         });
 
         autoScrollButton.addEventListener('click', () => {
@@ -420,6 +543,16 @@
             autoScrollButton.textContent = `自动滚动: ${autoScroll ? '开' : '关'}`;
             if (autoScroll) {
                 logContainer.scrollTop = logContainer.scrollHeight;
+            }
+        });
+
+        // 新增：页面卸载时清理定时器和连接，避免内存泄漏
+        window.addEventListener('beforeunload', () => {
+            if (reconnectTimer) {
+                clearTimeout(reconnectTimer);
+            }
+            if (webSocket) {
+                webSocket.close();
             }
         });
 
